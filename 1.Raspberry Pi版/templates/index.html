@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manus × GPT × Claude AI会話システム</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --border: #dcdfe4;
+    --text: #1f2328;
+    --muted: #6b7280;
+    --manus: #16a34a;  --manus-bg: #e8f8ee;
+    --gpt: #2563eb;    --gpt-bg: #eaf1ff;
+    --claude: #c2410c; --claude-bg: #fdf0e6;
+    --error: #dc2626;  --error-bg: #fdecec;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Hiragino Sans", "Yu Gothic", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  #btn-clear-logs {
+    font-size: 12px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #btn-clear-logs:hover { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+  #conn-dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #aaa;
+    margin-right: 6px;
+  }
+  #conn-dot.on { background: #22c55e; }
+  #conn-label { font-size: 13px; color: var(--muted); }
+
+  main {
+    max-width: 900px;
+    margin: 20px auto;
+    padding: 0 16px 60px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    user-select: none;
+  }
+  .panel-header .chevron {
+    display: inline-block;
+    font-size: 11px;
+    transition: transform 0.15s ease;
+  }
+  .panel.collapsed .panel-header .chevron { transform: rotate(-90deg); }
+  .panel-header .hint {
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .panel-body {
+    overflow: hidden;
+    max-height: 1200px;
+    opacity: 1;
+    margin-top: 14px;
+    transition: max-height 0.2s ease, opacity 0.15s ease, margin-top 0.2s ease;
+  }
+  .panel.collapsed .panel-body {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+    pointer-events: none;
+  }
+
+  #key-warning {
+    background: var(--error-bg);
+    color: var(--error);
+    border: 1px solid var(--error);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+
+  .field { margin-bottom: 14px; }
+  .field > label.field-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .field input[type=text], .field input[type=number], .field select {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .field input[type=text]#topic { width: 100%; }
+  .field input[type=number] { width: 100px; }
+
+  .provider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #eef0f2;
+    flex-wrap: wrap;
+  }
+  .provider-row:last-child { border-bottom: none; }
+  .provider-row label.check-label { min-width: 150px; font-size: 14px; cursor: pointer; }
+  .provider-row.disabled { opacity: 0.5; }
+  .key-missing { font-size: 12px; color: var(--error); }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  button {
+    padding: 9px 18px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    color: #fff;
+  }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #btn-start { background: #16a34a; }
+  #btn-pause { background: #d97706; }
+  #btn-resume { background: #2563eb; }
+  #btn-stop { background: #dc2626; }
+
+  .btn-link {
+    display: inline-block;
+    padding: 9px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    text-decoration: none;
+    color: #fff;
+    background: #475569;
+  }
+  .btn-link:hover { background: #334155; }
+
+  #summary-panel { margin-top: 16px; }
+  .summary-overall {
+    font-size: 14px;
+    line-height: 1.7;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+  .summary-speaker { margin-bottom: 16px; }
+  .summary-speaker h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    padding-bottom: 4px;
+    border-bottom: 2px solid var(--border);
+  }
+  .summary-speaker h4.manus  { color: var(--manus);  border-color: var(--manus); }
+  .summary-speaker h4.gpt    { color: var(--gpt);    border-color: var(--gpt); }
+  .summary-speaker h4.claude { color: var(--claude); border-color: var(--claude); }
+  .summary-speaker ul { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; }
+  .summary-issues {
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+  }
+  .summary-issues h4 { margin: 0 0 6px; font-size: 14px; color: #92400e; }
+  .summary-issues ul { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; }
+  .summary-divergent {
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+  }
+  .summary-divergent h4 { margin: 0 0 6px; font-size: 14px; color: #991b1b; }
+  .summary-divergent ul { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; }
+  .summary-raw { font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+
+  #status-bar {
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #eef1f5;
+    color: var(--muted);
+  }
+  #status-bar.error { background: var(--error-bg); color: var(--error); }
+
+  #conversation {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: 4px;
+    transition: max-height 0.2s ease;
+  }
+  body.settings-collapsed #conversation {
+    max-height: 75vh;
+  }
+
+  .bubble {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    line-height: 1.6;
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .bubble .meta { font-size: 11px; margin-bottom: 4px; opacity: 0.75; }
+
+  .bubble.manus  { align-self: flex-start; background: var(--manus-bg);  border: 1px solid var(--manus);  color: #14532d; }
+  .bubble.gpt    { align-self: flex-end;   background: var(--gpt-bg);    border: 1px solid var(--gpt);    color: #1e3a8a; text-align: right; }
+  .bubble.claude { align-self: center;     background: var(--claude-bg); border: 1px solid var(--claude); color: #7c2d12; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Manus × GPT × Claude AI会話システム</h1>
+  <div class="header-right">
+    <button id="btn-clear-logs" type="button">🗑 保存済みログを全削除</button>
+    <div><span id="conn-dot"></span><span id="conn-label">接続確認中...</span></div>
+  </div>
+</header>
+
+<main>
+  <div class="panel" id="settings-panel">
+    <div class="panel-header" id="settings-toggle">
+      <span class="chevron">▼</span>
+      <span>会話設定</span>
+      <span class="hint">(クリックで折りたたみ)</span>
+    </div>
+
+    <div class="panel-body" id="settings-body">
+      <div class="field">
+        <label class="field-label" for="topic">会話のテーマ</label>
+        <input type="text" id="topic" placeholder="例: 生成AIは創造性を高めるか">
+      </div>
+
+      <div class="field">
+        <label class="field-label">参加させるAI(2〜3体選択。それぞれモデルも指定できます)</label>
+
+        {% for provider in canonical_order %}
+        <div class="provider-row{{ '' if keys_status[provider] else ' disabled' }}" data-provider="{{ provider }}">
+          <label class="check-label">
+            <input type="checkbox" class="provider-check" value="{{ provider }}"
+                   {{ '' if keys_status[provider] else 'disabled' }}>
+            {{ provider_names[provider] }}
+          </label>
+
+          {% if provider in model_choices %}
+          <select class="model-select" data-provider="{{ provider }}">
+            {% for m in model_choices[provider] %}
+            <option value="{{ m }}">{{ m }}</option>
+            {% endfor %}
+            <option value="__custom__">カスタム入力...</option>
+          </select>
+          <input type="text" class="model-custom" data-provider="{{ provider }}"
+                 placeholder="モデル名を直接入力" style="display:none;">
+          {% else %}
+          <span style="font-size:12px; color: var(--muted);">(モデル選択非対応)</span>
+          {% endif %}
+
+          {% if not keys_status[provider] %}
+          <span class="key-missing">.envに{{ provider|upper }}のAPIキー未設定</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="moderator">モデレーター(司会役)</label>
+        <select id="moderator">
+          <option value="">(参加AIを2体以上選んでください)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="tone">トーン</label>
+        <select id="tone">
+          {% for key, tone in tones.items() %}
+          <option value="{{ key }}">{{ tone.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="turns">ターン数 (1〜{{ max_turns_limit }})</label>
+        <input type="number" id="turns" min="1" max="{{ max_turns_limit }}" value="6">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button id="btn-start">START</button>
+      <button id="btn-pause" disabled>PAUSE</button>
+      <button id="btn-resume" disabled>RESUME</button>
+      <button id="btn-stop" disabled>STOP / RESET</button>
+    </div>
+  </div>
+
+  <div id="status-bar">待機中</div>
+
+  <div id="conversation"></div>
+
+  <div id="summary-panel" class="panel" hidden>
+    <div class="panel-header" style="cursor:default;">
+      <span>会話の要約</span>
+    </div>
+    <div id="summary-body" class="panel-body" style="max-height:none; opacity:1; margin-top:14px;"></div>
+    <div id="download-row" class="btn-row" hidden>
+      <a id="dl-txt" class="btn-link" href="#" target="_blank">要約・ログをダウンロード(.txt)</a>
+      <a id="dl-json" class="btn-link" href="#" target="_blank">詳細ログ(.json)</a>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const connDot = document.getElementById('conn-dot');
+  const connLabel = document.getElementById('conn-label');
+  const statusBar = document.getElementById('status-bar');
+  const conversation = document.getElementById('conversation');
+  const moderatorSelect = document.getElementById('moderator');
+  const settingsPanel = document.getElementById('settings-panel');
+  const settingsToggle = document.getElementById('settings-toggle');
+  const summaryPanel = document.getElementById('summary-panel');
+  const summaryBody = document.getElementById('summary-body');
+  const downloadRow = document.getElementById('download-row');
+  const dlTxt = document.getElementById('dl-txt');
+  const dlJson = document.getElementById('dl-json');
+
+  function setSettingsCollapsed(collapsed) {
+    settingsPanel.classList.toggle('collapsed', collapsed);
+    document.body.classList.toggle('settings-collapsed', collapsed);
+  }
+
+  settingsToggle.addEventListener('click', () => {
+    setSettingsCollapsed(!settingsPanel.classList.contains('collapsed'));
+  });
+
+  const providerNames = {{ provider_names | tojson }};
+  const speakerClass = { "Manus": "manus", "GPT": "gpt", "Claude": "claude" };
+
+  const btnStart = document.getElementById('btn-start');
+  const btnPause = document.getElementById('btn-pause');
+  const btnResume = document.getElementById('btn-resume');
+  const btnStop = document.getElementById('btn-stop');
+  const btnClearLogs = document.getElementById('btn-clear-logs');
+
+  const MAX_SELECT = 3;
+
+  function checkedProviders() {
+    return Array.from(document.querySelectorAll('.provider-check:checked')).map(el => el.value);
+  }
+
+  function refreshModeratorOptions() {
+    const checked = checkedProviders();
+    const prevValue = moderatorSelect.value;
+    moderatorSelect.innerHTML = '';
+    if (checked.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '(参加AIを2体以上選んでください)';
+      moderatorSelect.appendChild(opt);
+      return;
+    }
+    checked.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = providerNames[p];
+      moderatorSelect.appendChild(opt);
+    });
+    if (checked.includes(prevValue)) {
+      moderatorSelect.value = prevValue;
+    }
+  }
+
+  function enforceMaxSelection() {
+    const checked = checkedProviders();
+    const atMax = checked.length >= MAX_SELECT;
+    document.querySelectorAll('.provider-check').forEach(el => {
+      if (el.dataset.keyMissing === '1') {
+        el.disabled = true; // APIキー未設定は常に選択不可
+        return;
+      }
+      if (el.checked) {
+        el.disabled = false; // チェック済みは常に操作可能(外せるように)
+        return;
+      }
+      el.disabled = atMax; // 未チェックで上限(3体)到達時のみ無効化
+    });
+  }
+
+  document.querySelectorAll('.provider-check').forEach(el => {
+    if (el.disabled) { el.dataset.keyMissing = '1'; }
+    el.addEventListener('change', () => {
+      enforceMaxSelection();
+      refreshModeratorOptions();
+    });
+  });
+
+  document.querySelectorAll('.model-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const provider = sel.dataset.provider;
+      const custom = document.querySelector(`.model-custom[data-provider="${provider}"]`);
+      if (sel.value === '__custom__') {
+        custom.style.display = 'inline-block';
+        custom.focus();
+      } else {
+        custom.style.display = 'none';
+      }
+    });
+  });
+
+  function getModelFor(provider) {
+    const sel = document.querySelector(`.model-select[data-provider="${provider}"]`);
+    if (!sel) return null; // Manusなどモデル選択非対応
+    if (sel.value === '__custom__') {
+      const custom = document.querySelector(`.model-custom[data-provider="${provider}"]`);
+      return (custom.value || '').trim();
+    }
+    return sel.value;
+  }
+
+  refreshModeratorOptions();
+
+  function setConn(on) {
+    connDot.classList.toggle('on', on);
+    connLabel.textContent = on ? 'サーバーに接続中' : '切断されました(再接続を試みています)';
+  }
+
+  function setStatus(text, isError) {
+    statusBar.textContent = text;
+    statusBar.classList.toggle('error', !!isError);
+  }
+
+  function setRunning(running) {
+    btnStart.disabled = running;
+    btnPause.disabled = !running;
+    btnResume.disabled = !running;
+    btnStop.disabled = !running;
+  }
+
+  function clearConversation() {
+    conversation.innerHTML = '';
+  }
+
+  function clearSummary() {
+    summaryPanel.hidden = true;
+    summaryBody.innerHTML = '';
+    downloadRow.hidden = true;
+  }
+
+  function renderSummary(ev) {
+    summaryBody.innerHTML = '';
+
+    if (ev.overall_summary) {
+      const p = document.createElement('div');
+      p.className = 'summary-overall';
+      p.textContent = ev.overall_summary;
+      summaryBody.appendChild(p);
+    }
+
+    (ev.per_speaker || []).forEach(item => {
+      const wrap = document.createElement('div');
+      wrap.className = 'summary-speaker';
+      const h4 = document.createElement('h4');
+      h4.className = speakerClass[item.speaker] || 'gpt';
+      h4.textContent = item.speaker + ' の視点';
+      wrap.appendChild(h4);
+      const ul = document.createElement('ul');
+      (item.points || []).forEach(pt => {
+        const li = document.createElement('li');
+        li.textContent = pt;
+        ul.appendChild(li);
+      });
+      wrap.appendChild(ul);
+      summaryBody.appendChild(wrap);
+    });
+
+    if (ev.key_issues && ev.key_issues.length) {
+      const box = document.createElement('div');
+      box.className = 'summary-issues';
+      const h4 = document.createElement('h4');
+      h4.textContent = '主な論点・課題';
+      box.appendChild(h4);
+      const ul = document.createElement('ul');
+      ev.key_issues.forEach(k => {
+        const li = document.createElement('li');
+        li.textContent = k;
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      summaryBody.appendChild(box);
+    }
+
+    if (ev.divergent_points && ev.divergent_points.length) {
+      const box = document.createElement('div');
+      box.className = 'summary-divergent';
+      const h4 = document.createElement('h4');
+      h4.textContent = 'AI間で見解が分かれた点';
+      box.appendChild(h4);
+      const ul = document.createElement('ul');
+      ev.divergent_points.forEach(d => {
+        const li = document.createElement('li');
+        const strong = document.createElement('strong');
+        strong.textContent = d.point || '';
+        li.appendChild(strong);
+        if (d.description) {
+          li.appendChild(document.createTextNode(' — ' + d.description));
+        }
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      summaryBody.appendChild(box);
+    }
+
+    if (ev.raw_text) {
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:12px;color:var(--muted);margin-bottom:6px;';
+      note.textContent = '(構造化に失敗したため、要約AIの応答をそのまま表示しています)';
+      summaryBody.appendChild(note);
+      const pre = document.createElement('div');
+      pre.className = 'summary-raw';
+      pre.textContent = ev.raw_text;
+      summaryBody.appendChild(pre);
+    }
+
+    summaryPanel.hidden = false;
+  }
+
+  function appendMessage(ev) {
+    const div = document.createElement('div');
+    const cls = speakerClass[ev.speaker] || 'gpt';
+    div.className = 'bubble ' + cls;
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `Turn ${ev.turn} - ${ev.speaker}`;
+    const body = document.createElement('div');
+    body.textContent = ev.text;
+    div.appendChild(meta);
+    div.appendChild(body);
+    conversation.appendChild(div);
+    conversation.scrollTop = conversation.scrollHeight;
+  }
+
+  function handleEvent(ev) {
+    switch (ev.type) {
+      case 'session_start':
+        clearConversation();
+        clearSummary();
+        setRunning(true);
+        setSettingsCollapsed(true);
+        setStatus(`セッション開始: 「${ev.topic}」 (${ev.tone_name} / 全${ev.max_turns}ターン) 参加: ${ev.participants.join('、')} / 司会: ${ev.moderator}`);
+        break;
+      case 'status':
+        setStatus(ev.agent === '要約' ? '会話の要約を作成中...' : `${ev.agent} が考え中...`);
+        break;
+      case 'message':
+        appendMessage(ev);
+        break;
+      case 'error':
+        setStatus(`エラー: ${ev.message}`, true);
+        break;
+      case 'summary':
+        renderSummary(ev);
+        break;
+      case 'session_end':
+        setRunning(false);
+        setStatus(`会話終了 (${ev.result})`);
+        if (ev.log_file_txt || ev.log_file_json) {
+          if (ev.log_file_txt) {
+            dlTxt.href = '/download/' + encodeURIComponent(ev.log_file_txt);
+            dlTxt.hidden = false;
+          } else {
+            dlTxt.hidden = true;
+          }
+          if (ev.log_file_json) {
+            dlJson.href = '/download/' + encodeURIComponent(ev.log_file_json);
+            dlJson.hidden = false;
+          } else {
+            dlJson.hidden = true;
+          }
+          downloadRow.hidden = false;
+          summaryPanel.hidden = false;
+        }
+        break;
+    }
+  }
+
+  const evtSource = new EventSource('/events');
+  evtSource.onopen = () => setConn(true);
+  evtSource.onerror = () => setConn(false);
+  evtSource.onmessage = (e) => {
+    try {
+      handleEvent(JSON.parse(e.data));
+    } catch (err) {
+      console.error('イベント解析失敗', err, e.data);
+    }
+  };
+
+  async function postJson(url, body) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }
+
+  btnStart.addEventListener('click', async () => {
+    const topic = document.getElementById('topic').value.trim();
+    const tone = document.getElementById('tone').value;
+    const turns = parseInt(document.getElementById('turns').value, 10);
+    const moderator = moderatorSelect.value;
+    const providers = checkedProviders();
+
+    if (!topic) { alert('テーマを入力してください。'); return; }
+    if (providers.length < 2) { alert('参加AIを2体以上選んでください。'); return; }
+    if (!moderator) { alert('モデレーターを選んでください。'); return; }
+
+    const participants = [];
+    for (const p of providers) {
+      const model = getModelFor(p);
+      if (model !== null && !model) {
+        alert(`${providerNames[p]} のモデルを指定してください。`);
+        return;
+      }
+      participants.push({ provider: p, model: model });
+    }
+
+    try {
+      await postJson('/api/start', { topic, tone, max_turns: turns, participants, moderator });
+    } catch (err) {
+      alert('開始できませんでした: ' + err.message);
+    }
+  });
+
+  btnPause.addEventListener('click', async () => {
+    try {
+      await postJson('/api/control', { action: 'pause' });
+      setStatus('一時停止中');
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  btnResume.addEventListener('click', async () => {
+    try {
+      await postJson('/api/control', { action: 'resume' });
+      setStatus('再開しました');
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  btnStop.addEventListener('click', async () => {
+    try {
+      await postJson('/api/control', { action: 'stop' });
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  btnClearLogs.addEventListener('click', async () => {
+    const ok = confirm(
+      'Piに保存されている全ての会話ログ(.json / .txt)を削除します。\n' +
+      'この操作は取り消せません。よろしいですか?'
+    );
+    if (!ok) return;
+    try {
+      const data = await postJson('/api/clear_logs', {});
+      alert(`${data.deleted}件のファイルを削除しました。`);
+    } catch (err) {
+      alert('削除に失敗しました: ' + err.message);
+    }
+  });
+})();
+</script>
+
+</body>
+</html>

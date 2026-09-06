@@ -1,0 +1,13 @@
+# Raspberry Pi Web UI版(Manus / GPT / Claude 対応)に必要なパッケージ一覧。
+# このファイル1つで完結します。以下のコマンドだけですべてインストールできます。
+#   pip install -r requirements_web.txt
+#
+# openai は 1.0 以上を指定しています。1.0未満(0.x系)は `openai.ChatCompletion.create(...)`
+# という古い呼び出し方の世代で、本プログラムが使っている `from openai import OpenAI` という
+# 1.0系以降の書き方と噛み合わず動作しません。
+
+requests>=2.31
+openai>=1.0
+python-dotenv>=1.0
+flask>=3.0
+anthropic>=0.40
