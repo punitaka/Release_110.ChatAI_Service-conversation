@@ -34,8 +34,8 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3-full python3-venv git
 
 # このリポジトリを取得し、この「1.Raspberry Pi版」フォルダで作業する
-git clone <このリポジトリのURL>
-cd <リポジトリ名>/1.Raspberry\ Pi版
+git clone https://github.com/punitaka/Release_110.ChatAI_Service-conversation.git
+cd Release_110.ChatAI_Service-conversation/1.Raspberry\ Pi版
 
 python3 -m venv .venv
 source .venv/bin/activate
