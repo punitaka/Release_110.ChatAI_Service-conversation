@@ -1,4 +1,4 @@
-# Raspberry Pi Web UI版(Manus / GPT / Claude 対応)に必要なパッケージ一覧。
+# Raspberry Pi Web UI版(Manus / GPT / Claude / GLM 対応)に必要なパッケージ一覧。
 # このファイル1つで完結します。以下のコマンドだけですべてインストールできます。
 #   pip install -r requirements_web.txt
 #

@@ -1,8 +1,17 @@
 """
-conversation_engine.py  v2 (マルチAI対応版)
+conversation_engine.py  v3 (マルチAI対応版)
 ============================================
-Manus / OpenAI(GPT) / Claude の中から2〜3体を選び、司会役(モデレーター)を1体指定して、
-テーマについて話し合わせるエンジン。app.py から呼び出される。
+Manus / OpenAI(GPT) / Claude / z.AI(GLM) の中から2〜4体を選び、司会役(モデレーター)を
+1体指定して、テーマについて話し合わせるエンジン。app.py から呼び出される。
+
+v2からの変更点:
+  - z.AI(智譜AI/GLM)を追加。z.AIはOpenAI互換API(base_urlを変えるだけ)のため、
+    新規の依存パッケージなしで既存のopenaiクライアントを流用している。
+    ただしGLMは内部思考(reasoning)がデフォルト有効で、抑制しないと思考だけで
+    max_tokensを使い切り本文が空になることが実運用で確認されているため、モデルごとに適した方法(reasoning_effort /
+    thinking.disabled)で抑制している(`_zai_thinking_kwargs`)。
+  - 各APIクライアントに timeout=30秒 を明示設定(デフォルトは数分単位と長く、
+    Pi側のネットワーク不調時に「思考中」表示のまま止まって見えるのを防ぐため)。
 
 v1(2AI固定・Manus特別扱い)からの主な変更点:
   - Claude(Anthropic API)を追加。
@@ -42,30 +51,79 @@ load_dotenv()
 MANUS_API_KEY     = os.environ.get("MANUS_API_KEY")
 OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+ZAI_API_KEY       = os.environ.get("ZAI_API_KEY")
 
 MANUS_API_BASE   = "https://api.manus.ai/v2"
+ZAI_API_BASE     = "https://api.z.ai/api/paas/v4/"
 POLL_INTERVAL    = 5
 POLL_TIMEOUT     = 300
 API_RETRY_COUNT  = 3
 API_RETRY_WAIT   = 10
 CLAUDE_MAX_TOKENS = 1024
+ZAI_MAX_TOKENS    = 1024
+# APIクライアントのデフォルトタイムアウトは数分単位と長く、Pi側のネットワーク不調時に
+# 「思考中」表示のまま止まって見えてしまう。短めに切って早くエラーとして返す。
+API_CLIENT_TIMEOUT = 30.0
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+openai_client = OpenAI(api_key=OPENAI_API_KEY, timeout=API_CLIENT_TIMEOUT) if OPENAI_API_KEY else None
+claude_client = (
+    anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=API_CLIENT_TIMEOUT)
+    if ANTHROPIC_API_KEY else None
+)
+# z.AI(智譜AI/GLM)はOpenAI互換API(https://docs.z.ai/api-reference/introduction)のため、
+# 新たなSDKを追加せず、既存のopenaiパッケージをbase_url差し替えだけで流用する。
+zai_client = (
+    OpenAI(api_key=ZAI_API_KEY, base_url=ZAI_API_BASE, timeout=API_CLIENT_TIMEOUT)
+    if ZAI_API_KEY else None
+)
+
+# z.AI(GLM)は内部思考(reasoning)がデフォルトで有効で、その思考トークンもmax_tokensの予算を
+# 消費する。システムプロンプトが長い場合、思考だけで予算を使い切り本文が空になることが
+# 実際に確認されているため、モデルごとに適した方法で思考を抑制する
+# (GLM-5.3系は`reasoning_effort`、GLM-4.7は`thinking.disabled`でないとAPIがエラーを返す仕様の違いがある)。
+_ZAI_THINKING_KWARGS = {
+    "glm-5.3": {"reasoning_effort": "low"},
+    "glm-5.3-flash": {"reasoning_effort": "low"},
+    "glm-4.7": {"extra_body": {"thinking": {"type": "disabled"}}},
+}
+
+
+def _zai_thinking_kwargs(model: str) -> dict:
+    return _ZAI_THINKING_KWARGS.get(model, {"reasoning_effort": "low"})
 
 # ─────────────────────────────────────────────
 # AIプロバイダ定義
 # ─────────────────────────────────────────────
-PROVIDER_DISPLAY_NAME = {"manus": "Manus", "openai": "GPT", "claude": "Claude"}
-CANONICAL_ORDER = ["manus", "openai", "claude"]
+PROVIDER_DISPLAY_NAME = {"manus": "Manus", "openai": "GPT", "claude": "Claude", "zai": "GLM"}
+CANONICAL_ORDER = ["manus", "openai", "claude", "zai"]
 
-# UIに表示するモデル候補(いずれも「custom」でユーザーが自由入力した値を優先する)。
-# OpenAI/Claudeともに新しいモデルが随時追加されるため、ここに無いモデル名を
-# 使いたい場合はUI側の「カスタム」欄に直接入力できるようにしてある。
+# UIに表示するモデル候補。(モデルID, 表示ラベル)のタプルのリスト。
+# 性能順に並べている(最も高性能 → バランス型 → 高速・低コスト)。いずれも「custom」でユーザーが自由入力した
+# 値を優先できるため、ここに無いモデル名を使いたい場合はUI側の「カスタム」欄に直接入力できる。
 MODEL_CHOICES = {
-    "openai": ["gpt-4o-mini", "gpt-4o"],
-    "claude": ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5-20251001"],
+    "openai": [
+        ("gpt-5.6-sol", "GPT-5.6 Sol(最も高性能)"),
+        ("gpt-5.6-terra", "GPT-5.6 Terra(バランス型)"),
+        ("gpt-5.6-luna", "GPT-5.6 Luna(高速・低コスト)"),
+    ],
+    "claude": [
+        ("claude-opus-5", "Claude Opus 5(最も高性能)"),
+        ("claude-sonnet-5", "Claude Sonnet 5(バランス型)"),
+        ("claude-haiku-4-5-20251001", "Claude Haiku 4.5(高速・低コスト)"),
+    ],
+    "zai": [
+        ("glm-5.3", "GLM-5.3(最も高性能)"),
+        ("glm-4.7", "GLM-4.7(バランス型)"),
+        ("glm-5.3-flash", "GLM-5.3 Flash(高速・低コスト)"),
+    ],
     # manus: モデル選択非対応(上記の理由により)
+}
+
+# 画面を開いた時点で各プロバイダのプルダウンに初期選択させるモデル(いずれも高速・低コスト側)。
+DEFAULT_MODEL = {
+    "openai": "gpt-5.6-luna",
+    "claude": "claude-haiku-4-5-20251001",
+    "zai": "glm-5.3-flash",
 }
 
 TONE_PRESETS = {
@@ -221,8 +279,17 @@ def manus_wait_for_response(task_id: str, control: ConversationControl) -> str:
 
 
 # ─────────────────────────────────────────────
-# OpenAI / Claude 呼び出し
+# OpenAI / Claude / z.AI 呼び出し
 # ─────────────────────────────────────────────
+def _format_error(e: Exception) -> str:
+    """例外の種類とメッセージを、チャット吹き出しにそのまま表示できる短い文字列にする。
+    ターミナル(python3 app.pyの実行画面)を見なくても、画面上で原因を確認できるようにするため。"""
+    detail = str(e).strip()
+    if len(detail) > 300:
+        detail = detail[:300] + "…"
+    return f"({type(e).__name__}: {detail})" if detail else f"({type(e).__name__})"
+
+
 def _call_openai(model: str, system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
     if openai_client is None:
         return "(OPENAI_API_KEYが設定されていません)"
@@ -244,7 +311,31 @@ def _call_openai(model: str, system_prompt: str, user_prompt: str, json_mode: bo
         return resp.choices[0].message.content
     except Exception as e:
         print(f"[エラー] OpenAI 呼び出し失敗: {e}")
-        return "(エラーが発生しました)"
+        return f"(OpenAI呼び出し失敗) {_format_error(e)}"
+
+
+def _call_zai(model: str, system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
+    if zai_client is None:
+        return "(ZAI_API_KEYが設定されていません)"
+    try:
+        kwargs = dict(_zai_thinking_kwargs(model))
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        resp = zai_client.chat.completions.create(
+            model=model,
+            max_tokens=ZAI_MAX_TOKENS,  # z.AIはOpenAI互換だがトークン上限パラメータ名は旧来のmax_tokens
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            **kwargs,
+        )
+        # thinking抑制が効かず思考だけでトークン予算を使い切ると本文が空になることがあるため、
+        # 空応答を無言のまま流さずエラーとして可視化する。
+        return resp.choices[0].message.content or "(z.AIからの応答が空でした。thinking設定の調整が必要な可能性があります)"
+    except Exception as e:
+        print(f"[エラー] z.AI(GLM) 呼び出し失敗: {e}")
+        return f"(z.AI呼び出し失敗) {_format_error(e)}"
 
 
 def _call_claude(model: str, system_prompt: str, user_prompt: str) -> str:
@@ -257,10 +348,15 @@ def _call_claude(model: str, system_prompt: str, user_prompt: str) -> str:
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
-        return resp.content[0].text
+        # 拡張思考(extended thinking)に対応したモデル(Opus 5等)は、resp.contentに
+        # ThinkingBlock(block.type == "thinking")が混ざることがあり、先頭要素が必ずしも
+        # TextBlockとは限らない。type=="text"のブロックだけを抽出して連結する
+        # という対処をしている。
+        text = "".join(block.text for block in resp.content if block.type == "text")
+        return text or "(Claudeからの応答が空でした)"
     except Exception as e:
         print(f"[エラー] Claude 呼び出し失敗: {e}")
-        return "(エラーが発生しました)"
+        return f"(Claude呼び出し失敗) {_format_error(e)}"
 
 
 def call_ai(provider: str, model: str, system_prompt: str, user_prompt: str,
@@ -269,6 +365,8 @@ def call_ai(provider: str, model: str, system_prompt: str, user_prompt: str,
         return _call_openai(model, system_prompt, user_prompt, json_mode=json_mode)
     if provider == "claude":
         return _call_claude(model, system_prompt, user_prompt)
+    if provider == "zai":
+        return _call_zai(model, system_prompt, user_prompt, json_mode=json_mode)
     if provider == "manus":
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
         task_id = manus_create_task(full_prompt)
@@ -313,9 +411,13 @@ def build_transcript(log: list) -> str:
 # 会話終了後の要約生成
 # ─────────────────────────────────────────────
 # 要約担当AIの優先順位。JSON出力の安定性が高い順(OpenAIはJSONモードあり、
+# z.AI(GLM)もOpenAI互換のresponse_formatに対応しているが実績が少ないため次点、
 # Claudeはプロンプト指示への追従性が高い、Manusはエージェント的な応答で
 # JSON以外の文章が混ざりやすいため最後)。実際に参加しているAIの中から選ぶ。
-SUMMARY_PROVIDER_PREFERENCE = ["openai", "claude", "manus"]
+SUMMARY_PROVIDER_PREFERENCE = ["openai", "claude", "zai", "manus"]
+
+# response_formatによるJSONモードに対応しているプロバイダ(OpenAI互換API)
+JSON_MODE_PROVIDERS = {"openai", "zai"}
 
 SUMMARY_JSON_SCHEMA_HINT = (
     '{"overall_summary": "会話全体の総括(2〜3文)", '
@@ -389,7 +491,7 @@ def generate_summary(topic: str, participant_names: list, log: list, participant
         "見解の相違が実質的に無かった場合は、divergent_pointsは空配列にしてください。"
     )
 
-    raw = call_ai(provider, model, system_prompt, user_prompt, control, json_mode=(provider == "openai"))
+    raw = call_ai(provider, model, system_prompt, user_prompt, control, json_mode=(provider in JSON_MODE_PROVIDERS))
     parsed = _extract_json(raw)
 
     if isinstance(parsed, dict) and "per_speaker" in parsed:
@@ -476,7 +578,7 @@ def save_log(log: list, topic: str, tone_name: str, participant_names: list,
 def run_conversation(topic: str, tone_key: str, max_turns: int, participants: list,
                       moderator_provider: str, control: ConversationControl, broadcaster):
     """
-    participants: [{"provider": "manus"|"openai"|"claude", "model": str|None}, ...] (2〜3件)
+    participants: [{"provider": "manus"|"openai"|"claude"|"zai", "model": str|None}, ...] (2〜4件)
     moderator_provider: participants に含まれる provider のいずれか
 
     Turn1はモデレーターの開始発言。Turn2以降は「モデレーター以外 → ... → モデレーター」の
@@ -496,6 +598,8 @@ def run_conversation(topic: str, tone_key: str, max_turns: int, participants: li
         missing.append("OPENAI_API_KEY")
     if "claude" in provider_set and not ANTHROPIC_API_KEY:
         missing.append("ANTHROPIC_API_KEY")
+    if "zai" in provider_set and not ZAI_API_KEY:
+        missing.append("ZAI_API_KEY")
     if missing:
         emit({"type": "error", "source": "config",
               "message": f"{', '.join(missing)} が設定されていません。.envを確認してください。"})

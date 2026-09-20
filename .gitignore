@@ -1,0 +1,36 @@
+# ===== 秘密情報(絶対にコミットしない) =====
+.env
+*.env
+!.env.example
+
+# ===== 会話ログ(テーマ・全発言が入る) =====
+1.Raspberry Pi版/logs/*
+!1.Raspberry Pi版/logs/.gitkeep
+
+# ===== Python =====
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ===== ESP-IDF =====
+2.ESP32版/build/
+2.ESP32版/managed_components/
+# menuconfigで設定したWi-Fi SSID/パスワード/PiのURLが入るため、コミットしない
+2.ESP32版/sdkconfig
+2.ESP32版/sdkconfig.old
+2.ESP32版/.vscode/
+
+# 取得して使うELECROW公式サンプル(ライセンス不明のため同梱しない)
+2.ESP32版/components/bsp_display/
+2.ESP32版/components/bsp_i2c/
+2.ESP32版/components/bsp_wifi/
+
+# 各自が用意するスプラッシュ画像(他社ロゴ等を含む場合があるため)
+2.ESP32版/main/splash_logo.bin
+
+# ===== エディタ/OS =====
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

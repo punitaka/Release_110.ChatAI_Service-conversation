@@ -9,7 +9,7 @@ Raspberry Pi上で動くWebインターフェース本体。
 
     http://<Raspberry PiのIPアドレス>:5000
 
-にアクセスして、Manus / GPT(OpenAI) / Claude(Anthropic) の中から2〜3体を選び、
+にアクセスして、Manus / GPT(OpenAI) / Claude(Anthropic) / GLM(z.AI) の中から2〜5体を選び、
 司会役(モデレーター)を指定して、テーマについて会話させることができる。
 会話の進行(発言・思考中ステータス・エラー)はリアルタイムに表示される。
 
@@ -19,7 +19,7 @@ Raspberry Pi上で動くWebインターフェース本体。
   - 会話の生成自体は時間のかかる処理(Manusのポーリングで最大300秒)なので、
     バックグラウンドスレッドで実行し、HTTPリクエストの応答をブロックしない。
   - 同時に実行できる会話は1つまで(初期版の割り切り)。2つ目のSTARTは409を返す。
-  - APIキー(MANUS_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY)はこのサーバーの
+  - APIキー(MANUS_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / ZAI_API_KEY)はこのサーバーの
     プロセス内にのみ存在し、ブラウザへ送るデータ(SSEイベント)には一切含めていない。
   - 会話ログはlogs/配下に自動保存され、自動削除の仕組みはない(無期限に残る)。
     機密性の高い用途向けに、画面から一括削除できる /api/clear_logs を用意している。
@@ -45,8 +45,9 @@ _state = {"thread": None, "control": None}
 
 MAX_TURNS_LIMIT = 20
 MIN_PARTICIPANTS = 2
-MAX_PARTICIPANTS = 3
-VALID_PROVIDERS = {"manus", "openai", "claude"}
+MAX_PARTICIPANTS = 5  # 現在の実プロバイダ数(4)より多めに設定。将来プロバイダを追加した際に
+                       # この数値を変えずに済むよう、あらかじめ余裕を持たせている。
+VALID_PROVIDERS = {"manus", "openai", "claude", "zai"}
 
 
 @app.route("/")
@@ -55,6 +56,7 @@ def index():
         "manus": bool(engine.MANUS_API_KEY),
         "openai": bool(engine.OPENAI_API_KEY),
         "claude": bool(engine.ANTHROPIC_API_KEY),
+        "zai": bool(engine.ZAI_API_KEY),
     }
     return render_template(
         "index.html",
@@ -63,6 +65,7 @@ def index():
         provider_names=engine.PROVIDER_DISPLAY_NAME,
         canonical_order=engine.CANONICAL_ORDER,
         model_choices=engine.MODEL_CHOICES,
+        default_models=engine.DEFAULT_MODEL,
         max_turns_limit=MAX_TURNS_LIMIT,
     )
 
@@ -77,7 +80,7 @@ def download(filename):
 @app.route("/api/clear_logs", methods=["POST"])
 def api_clear_logs():
     """logs/ 配下の会話ログ(conversation_*.json / .txt)をすべて削除する。
-    経営層への貸し出し等、機密性を重視する用途向けの「即時消去」ボタン用。
+    機密性を重視する用途向けの「即時消去」ボタン用。
     実行中の会話(サーバープロセス内のメモリ上の状態)には影響しない。"""
     LOGS_DIR.mkdir(exist_ok=True)
     deleted = 0
@@ -92,6 +95,28 @@ def api_clear_logs():
                     errors.append(f"{path.name}: {e}")
 
     return jsonify(status="ok", deleted=deleted, errors=errors)
+
+
+@app.route("/api/events")
+def api_events_poll():
+    """CrowPanel(ESP-IDF)など、長時間接続の維持やチャンク解析が難しい組み込みクライアント向けの
+    ポーリング用エンドポイント。?since=<seq> で、そのseqより後のイベントだけをJSON配列で返す。
+    ブラウザ向けのSSE(/events)とは独立しており、互いに影響しない。
+
+    使い方:
+      1. 起動直後に ?since=0 (省略時も同じ) を叩き、latest_seq を控える
+         (起動前の古い会話ログを読み飛ばしたい場合は、この latest_seq を次回の since に使う)
+      2. 以後、1〜2秒間隔で ?since=<前回受け取った最大seq> をポーリングする
+    """
+    try:
+        since = int(request.args.get("since", 0))
+    except (TypeError, ValueError):
+        since = 0
+    items = broadcaster.get_since(since)
+    return jsonify(
+        latest_seq=broadcaster.latest_seq(),
+        events=[{"seq": seq, **event} for seq, event in items],
+    )
 
 
 @app.route("/events")

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Manus × GPT × Claude AI会話システム</title>
+<title>Manus × GPT × Claude × GLM AI会話システム</title>
 <style>
   :root {
     --bg: #f4f5f7;
@@ -14,6 +14,7 @@
     --manus: #16a34a;  --manus-bg: #e8f8ee;
     --gpt: #2563eb;    --gpt-bg: #eaf1ff;
     --claude: #c2410c; --claude-bg: #fdf0e6;
+    --glm: #7c3aed;    --glm-bg: #f3e8ff;
     --error: #dc2626;  --error-bg: #fdecec;
   }
   * { box-sizing: border-box; }
@@ -182,6 +183,7 @@
   .summary-speaker h4.manus  { color: var(--manus);  border-color: var(--manus); }
   .summary-speaker h4.gpt    { color: var(--gpt);    border-color: var(--gpt); }
   .summary-speaker h4.claude { color: var(--claude); border-color: var(--claude); }
+  .summary-speaker h4.glm    { color: var(--glm);    border-color: var(--glm); }
   .summary-speaker ul { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; }
   .summary-issues {
     margin-top: 10px;
@@ -240,12 +242,13 @@
   .bubble.manus  { align-self: flex-start; background: var(--manus-bg);  border: 1px solid var(--manus);  color: #14532d; }
   .bubble.gpt    { align-self: flex-end;   background: var(--gpt-bg);    border: 1px solid var(--gpt);    color: #1e3a8a; text-align: right; }
   .bubble.claude { align-self: center;     background: var(--claude-bg); border: 1px solid var(--claude); color: #7c2d12; }
+  .bubble.glm    { align-self: flex-start; background: var(--glm-bg);    border: 1px solid var(--glm);    color: #4c1d95; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Manus × GPT × Claude AI会話システム</h1>
+  <h1>Manus × GPT × Claude × GLM AI会話システム</h1>
   <div class="header-right">
     <button id="btn-clear-logs" type="button">🗑 保存済みログを全削除</button>
     <div><span id="conn-dot"></span><span id="conn-label">接続確認中...</span></div>
@@ -267,7 +270,7 @@
       </div>
 
       <div class="field">
-        <label class="field-label">参加させるAI(2〜3体選択。それぞれモデルも指定できます)</label>
+        <label class="field-label">参加させるAI(2〜5体選択。それぞれモデルも指定できます)</label>
 
         {% for provider in canonical_order %}
         <div class="provider-row{{ '' if keys_status[provider] else ' disabled' }}" data-provider="{{ provider }}">
@@ -279,8 +282,8 @@
 
           {% if provider in model_choices %}
           <select class="model-select" data-provider="{{ provider }}">
-            {% for m in model_choices[provider] %}
-            <option value="{{ m }}">{{ m }}</option>
+            {% for model_id, model_label in model_choices[provider] %}
+            <option value="{{ model_id }}" {{ 'selected' if default_models.get(provider) == model_id else '' }}>{{ model_label }}</option>
             {% endfor %}
             <option value="__custom__">カスタム入力...</option>
           </select>
@@ -368,7 +371,7 @@
   });
 
   const providerNames = {{ provider_names | tojson }};
-  const speakerClass = { "Manus": "manus", "GPT": "gpt", "Claude": "claude" };
+  const speakerClass = { "Manus": "manus", "GPT": "gpt", "Claude": "claude", "GLM": "glm" };
 
   const btnStart = document.getElementById('btn-start');
   const btnPause = document.getElementById('btn-pause');
@@ -376,7 +379,7 @@
   const btnStop = document.getElementById('btn-stop');
   const btnClearLogs = document.getElementById('btn-clear-logs');
 
-  const MAX_SELECT = 3;
+  const MAX_SELECT = 5;
 
   function checkedProviders() {
     return Array.from(document.querySelectorAll('.provider-check:checked')).map(el => el.value);

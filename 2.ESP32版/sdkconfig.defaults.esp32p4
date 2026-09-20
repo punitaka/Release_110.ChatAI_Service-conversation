@@ -1,0 +1,57 @@
+# CrowPanel Advanced 7inch (V1.1) 用の恒久設定。
+# `idf.py set-target esp32p4` で sdkconfig を生成する際に読み込まれる
+# (sdkconfig.defaults が無いとこのファイルは読まれない。ESP-IDFの仕様)。
+
+# --- チップリビジョン ---
+# V1.1のESP32-P4はリビジョンv1.3。ESP-IDF v5.5系の既定(v3.1以上必須)のままだと
+# 書き込みに失敗するため、v3未満を選ぶ。
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_100=y
+
+# --- ESP32-C6(Wi-Fi)とのSDIO接続 ---
+# V1.1は4-bitバス。ピン番号は基板の配線に合わせたもの。
+CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
+CONFIG_ESP_HOSTED_SDIO_BUS_WIDTH=4
+
+CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_CMD_SLOT_1=19
+CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_CLK_SLOT_1=18
+CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D0_SLOT_1=17
+CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D1_4BIT_BUS_SLOT_1=16
+CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D2_4BIT_BUS_SLOT_1=15
+CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D3_4BIT_BUS_SLOT_1=14
+CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=32
+
+# --- Flash / PSRAM ---
+# 16MB Flash (QIO) / 32MB PSRAM (Hex, 200MHz)
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_HEX=y
+CONFIG_SPIRAM_SPEED_200M=y
+
+# --- パーティションテーブル ---
+# partitions.csv(カスタム)を使う。
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# --- ウォッチドッグ ---
+# 日本語(カスタムCJKビットマップフォント)の長文ラベルが多数ある画面でスクロールすると、
+# LVGLの再描画が既定の5秒を超えてタスクウォッチドッグでリセットされることがあった。
+# 余裕を持たせる(あわせてmain.cのLOG_MAX_LINESで保持件数も絞っている)。
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=15
+
+# --- LVGLのメモリ ---
+# 発言の吹き出し・要約パネルはオブジェクト数が多く、LVGL既定の固定32KBプールを
+# 使い切ってクラッシュした。内部RAM側のプールをKconfig上限の128KBに広げる。
+# (CONFIG_LV_MEM_CUSTOM=y でPSRAM側に逃がす方法は、フレームバッファのDMA転送と
+#  バス帯域を奪い合い、画面端がちらつくグリッチが出たため採用しない。)
+CONFIG_LV_MEM_SIZE_KILOBYTES=128
+
+# --- LVGLフォント ---
+# 収録文字数の多いフォント(JIS第一+第二水準など)では、LVGLのフォントコンバータが生成する
+# コードが「LV_FONT_FMT_TXT_LARGE が必須」とするため有効にしている
+# (現在の常用漢字2,136字版でも動作に支障はない)。
+CONFIG_LV_FONT_FMT_TXT_LARGE=y

@@ -1,0 +1,3 @@
+# このファイル(拡張子なし)が存在しないと、ESP-IDFのビルドシステムは
+# sdkconfig.defaults.esp32p4 を一切読み込まない(tools/cmake/kconfig.cmake参照)。
+# 中身は空で構わないが、ファイル自体の存在が必須。
