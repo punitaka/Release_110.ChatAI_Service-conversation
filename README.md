@@ -13,8 +13,7 @@
 LINE風の吹き出しでリアルタイムに見られます。会話が終わると、AIごとの視点や「AI間で見解が分かれた点」を
 自動で要約します。
 
-<!-- 解説動画を公開したら、ここにYouTubeのリンクを追加してください -->
-
+[【ESP32×ラズパイ】4つのAIが雑談する装置 | 初版完成 (GPT×Claude×Manus×GLM)](https://youtu.be/I4d_IhmYvpA)
 > [!NOTE]
 > 個人による試作(プロトタイプ)です。Manus・OpenAI・Anthropic・z.AI・ELECROWの各社とは無関係の
 > 非公式プロジェクトです。コードやドキュメントの一部はAI(Claude / Manus)による生成物を含み、
